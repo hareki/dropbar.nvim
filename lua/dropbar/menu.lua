@@ -397,12 +397,28 @@ function dropbar_menu_t:fill_buf()
     -- on at least one symbol when inside the menu
     local n = self._win_configs.width - entry:displaywidth()
     if n > 0 then
+      local configs = require('dropbar.configs')
       local pad = string.rep(' ', n)
-      local last_sym = entry.components[#entry.components]
-      if last_sym then
-        last_sym.name = last_sym.name .. pad
+
+      -- Make indicator is at the rightmost edge
+      if
+        configs.opts.menu.indicator_side == 'right'
+        and #entry.components >= 2
+      then
+        -- Pad the symbol (second-to-last component), push the indicator to the right edge
+        local symbol_component = entry.components[#entry.components - 1]
+        if symbol_component then
+          symbol_component.name = symbol_component.name .. pad
+        end
+        -- Regenerate the line with the padded symbol, but don't add extra padding
+        line, entry_hl_info = entry:cat()
+      else
+        local last_sym = entry.components[#entry.components]
+        if last_sym then
+          last_sym.name = last_sym.name .. pad
+        end
+        line = line .. pad
       end
-      line = line .. pad
     end
     table.insert(lines, line)
     table.insert(hl_info, entry_hl_info)

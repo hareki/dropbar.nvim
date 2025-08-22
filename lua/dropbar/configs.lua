@@ -225,24 +225,46 @@ M.opts = {
               string.rep(' ', vim.fn.strdisplaywidth(menu_indicator_icon))
             menu_indicator_on_click = false
           end
+
+          local indicator_component = sym:merge({
+            name = '',
+            icon = menu_indicator_icon,
+            icon_hl = 'dropbarIconUIIndicator',
+            on_click = menu_indicator_on_click,
+          })
+
+          local symbol_component = sym:merge({
+            on_click = function()
+              -- Check if this is a directory before closing menu
+              local stat = vim.uv.fs_stat(sym.data and sym.data.path or '')
+              local is_directory = stat and stat.type == 'directory'
+
+              if is_directory then
+                if indicator_component.on_click == nil then
+                  configs.opts.symbol.on_click(indicator_component)
+                elseif indicator_component.on_click then
+                  indicator_component.on_click(indicator_component)
+                end
+                return
+              end
+
+              local root_menu = symbol.menu and symbol.menu:root()
+              if root_menu then
+                root_menu:close(false)
+              end
+              sym:jump()
+            end,
+          })
+
+          local components = {}
+          if configs.opts.menu.indicator_side == 'right' then
+            components = { symbol_component, indicator_component }
+          else
+            components = { indicator_component, symbol_component }
+          end
+
           return menu.dropbar_menu_entry_t:new({
-            components = {
-              sym:merge({
-                name = '',
-                icon = menu_indicator_icon,
-                icon_hl = 'dropbarIconUIIndicator',
-                on_click = menu_indicator_on_click,
-              }),
-              sym:merge({
-                on_click = function()
-                  local root_menu = symbol.menu and symbol.menu:root()
-                  if root_menu then
-                    root_menu:close(false)
-                  end
-                  sym:jump()
-                end,
-              }),
-            },
+            components = components,
           })
         end, entries_source),
       })
@@ -353,11 +375,13 @@ M.opts = {
     },
   },
   menu = {
+    indicator_side = 'left', -- 'left' or 'right'
     -- When on, preview the symbol under the cursor on CursorMoved
     preview = true,
     hover = true,
     -- When on, automatically set the cursor to the closest previous/next
     -- clickable component in the direction of cursor movement on CursorMoved
+    -- Values: false (disable), true (first clickable), "symbol" (prioritize symbol), "indicator" (prioritize indicator)
     quick_navigation = true,
     entry = {
       padding = {
