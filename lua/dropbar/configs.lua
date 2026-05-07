@@ -170,11 +170,11 @@ M.opts = {
   symbol = {
     ---@type fun(symbol: dropbar_symbol_t, min_width: integer?, n_clicks: integer?, button: string?, modifiers: string?)|false?
     on_click = function(symbol)
-      -- Update current context highlights if the symbol
-      -- is shown inside a menu
-      if symbol.entry and symbol.entry.menu then
-        symbol.entry.menu:update_current_context_hl(symbol.entry.idx)
-      elseif symbol.bar then
+      -- Update current context highlights when clicking a bar segment.
+      -- Menu rows are handled in dropbar_menu_t:open()/close() so the
+      -- highlight tracks the currently expanded child instead of the
+      -- last-clicked row.
+      if symbol.bar then
         symbol.bar:update_current_context_hl(symbol.bar_idx)
       end
 
