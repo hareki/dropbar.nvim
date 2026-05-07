@@ -515,14 +515,14 @@ local function convert(path, buf, win)
         self.siblings = {}
         self.sibling_idx = 1
         if parent_dir then
-          for idx, name in vim.iter(vim.fs.dir(parent_dir)):enumerate() do
+          for name in vim.fs.dir(parent_dir) do
             if path_opts.filter(name) then
               table.insert(
                 self.siblings,
                 convert(parent_dir .. '/' .. name, buf, win)
               )
               if name == self.name then
-                self.sibling_idx = idx
+                self.sibling_idx = #self.siblings
               end
             end
           end
