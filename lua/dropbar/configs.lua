@@ -431,7 +431,13 @@ M.opts = {
     ---@type table<string, string|function|table<string, string|function>>
     keymaps = {
       ['q'] = '<C-w>q',
-      ['<Esc>'] = '<C-w>q',
+      ['<Esc>'] = function()
+        local menu = utils.menu.get_current()
+        local root = menu and menu:root()
+        if root then
+          root:close(false)
+        end
+      end,
       ['<Left>'] = '<C-w>q',
       ['h'] = '<C-w>q',
       ['<Right>'] = activate_current_row,
