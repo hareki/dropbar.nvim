@@ -502,7 +502,7 @@ M.opts = {
       col = function(menu)
         if menu.prev_menu then
           return menu.prev_menu._win_configs.width
-            - 1
+            + 1
             + (
               menu.prev_menu.scrollbar
                 and menu.prev_menu.scrollbar.background
