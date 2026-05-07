@@ -80,6 +80,7 @@ M.opts = {
         Field = ' ',
         File = '󰈔 ',
         Folder = '󰉋 ',
+        FolderMenu = '󰉋 ',
         ForStatement = '󰑖 ',
         Function = '󰊕 ',
         GotoStatement = '󰁔 ',
@@ -226,6 +227,7 @@ M.opts = {
               string.rep(' ', vim.fn.strdisplaywidth(menu_indicator_icon))
             menu_indicator_on_click = false
           end
+          local is_dir = sym.data and sym.data.is_dir
           return menu.dropbar_menu_entry_t:new({
             components = {
               sym:merge({
@@ -235,6 +237,9 @@ M.opts = {
                 on_click = menu_indicator_on_click,
               }),
               sym:merge({
+                icon = is_dir and configs.opts.icons.kinds.symbols.FolderMenu
+                  or sym.icon,
+                name_hl = is_dir and 'DropBarKindDirMenu' or sym.name_hl,
                 on_click = function()
                   local root_menu = symbol.menu and symbol.menu:root()
                   if root_menu then

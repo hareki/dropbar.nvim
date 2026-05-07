@@ -479,7 +479,10 @@ local function convert(path, buf, win)
     icon = icon,
     name_hl = name_hl,
     icon_hl = icon_hl,
-    data = { path = path },
+    data = {
+      path = path,
+      is_dir = stat and stat.type == 'directory' or nil,
+    },
     ---Override the default jump function
     jump = function(self)
       vim.cmd.edit(vim.fn.fnameescape(self.data.path))
