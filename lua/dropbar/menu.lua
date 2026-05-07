@@ -418,6 +418,16 @@ function dropbar_menu_t:update_current_context_hl(linenr)
   end
 end
 
+---Row index whose submenu is currently open, or nil if no submenu is open.
+---Used as the source of truth for `DropBarMenuCurrentContext` so the
+---highlight follows the expanded row instead of the initial cursor.
+---@return integer?
+function dropbar_menu_t:_current_context_idx()
+  if self.sub_menu and self.sub_menu.is_opened and self.clicked_at then
+    return self.clicked_at[1]
+  end
+end
+
 ---Fill the menu buffer with entries in `self.entries` and add
 ---highlights to the buffer
 function dropbar_menu_t:fill_buf()
@@ -516,9 +526,7 @@ function dropbar_menu_t:redraw()
   vim.bo[self.buf].ma = true
   self:fill_buf()
   vim.bo[self.buf].ma = false
-  if self.cursor then
-    self:update_current_context_hl(self.cursor[1])
-  end
+  self:update_current_context_hl(self:_current_context_idx())
 end
 
 ---Set the directory icon on the parent menu entry that triggered this
@@ -564,9 +572,7 @@ function dropbar_menu_t:make_buf()
   end
   self.buf = vim.api.nvim_create_buf(false, true)
   self:fill_buf()
-  if self.cursor then
-    self:update_current_context_hl(self.cursor[1])
-  end
+  self:update_current_context_hl(self:_current_context_idx())
   vim.bo[self.buf].ma = false
   vim.bo[self.buf].ft = 'dropbar_menu'
 
@@ -811,6 +817,11 @@ function dropbar_menu_t:open(opts)
   self:open_win()
   _G.dropbar.menus[self.win] = self
   self:_update_parent_dir_icon(true)
+  if self.prev_menu then
+    self.prev_menu:update_current_context_hl(
+      self.prev_menu:_current_context_idx()
+    )
+  end
   -- Initialize cursor position
   if self._win_configs.focusable ~= false then
     if self.prev_cursor then
@@ -839,6 +850,10 @@ function dropbar_menu_t:close(restore_view)
     self.sub_menu:close(restore_view)
   end
   self:_update_parent_dir_icon(false)
+  if self.prev_menu then
+    self.prev_menu.sub_menu = nil
+    self.prev_menu:update_current_context_hl(nil)
+  end
   -- Move cursor to the previous window
   if self.prev_win and vim.api.nvim_win_is_valid(self.prev_win) then
     vim.api.nvim_set_current_win(self.prev_win)
@@ -933,9 +948,7 @@ function dropbar_menu_t:fuzzy_find_restore_entries()
     self.entries[entry.idx] = entry
   end
   self:fill_buf()
-  if self.cursor then
-    self:update_current_context_hl(self.cursor[1])
-  end
+  self:update_current_context_hl(self:_current_context_idx())
 end
 
 ---Stop fuzzy finding and clean up allocated memory
