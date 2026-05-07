@@ -23,6 +23,14 @@ local function activate_current_row()
   end
 end
 
+local function close_menu()
+  local menu = utils.menu.get_current()
+  local root = menu and menu:root()
+  if root then
+    root:close(false)
+  end
+end
+
 ---@class dropbar_configs_t
 M.opts = {
   icons = {
@@ -430,14 +438,8 @@ M.opts = {
     },
     ---@type table<string, string|function|table<string, string|function>>
     keymaps = {
-      ['q'] = '<C-w>q',
-      ['<Esc>'] = function()
-        local menu = utils.menu.get_current()
-        local root = menu and menu:root()
-        if root then
-          root:close(false)
-        end
-      end,
+      ['q'] = close_menu,
+      ['<Esc>'] = close_menu,
       ['<Left>'] = '<C-w>q',
       ['h'] = '<C-w>q',
       ['<Right>'] = activate_current_row,
