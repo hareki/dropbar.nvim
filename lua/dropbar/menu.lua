@@ -61,16 +61,21 @@ function dropbar_menu_entry_t:new(opts)
 end
 
 ---Concatenate inside a dropbar menu entry to get the final string
----and highlight information of the entry
+---and highlight information of the entry. Components flagged with
+---`align_right` are rendered separately as virt_text and skipped here.
 ---@return string str
 ---@return dropbar_menu_hl_info_t[] hl_info
 function dropbar_menu_entry_t:cat()
   local components_with_sep = {} ---@type dropbar_symbol_t[]
-  for component_idx, component in ipairs(self.components) do
-    if component_idx > 1 then
-      table.insert(components_with_sep, self.separator)
+  local first = true
+  for _, component in ipairs(self.components) do
+    if not component.align_right then
+      if not first then
+        table.insert(components_with_sep, self.separator)
+      end
+      table.insert(components_with_sep, component)
+      first = false
     end
-    table.insert(components_with_sep, component)
   end
   local str = string.rep(' ', self.padding.left)
   local hl_info = {}
@@ -94,6 +99,28 @@ function dropbar_menu_entry_t:cat()
   return str .. string.rep(' ', self.padding.right), hl_info
 end
 
+---Get the byte column where the first named component's name starts.
+---Used for cursor hijacking so the cursor sits on the first character
+---of the row's name regardless of horizontal motion.
+---@return integer
+function dropbar_menu_entry_t:first_name_col()
+  local col = self.padding.left
+  local first = true
+  for _, component in ipairs(self.components) do
+    if not component.align_right then
+      if not first then
+        col = col + self.separator:bytewidth()
+      end
+      if component.name and component.name ~= '' then
+        return col + #component.icon
+      end
+      col = col + component:bytewidth()
+      first = false
+    end
+  end
+  return self.padding.left
+end
+
 ---Get the display length of the dropbar menu entry
 ---@return number
 function dropbar_menu_entry_t:displaywidth()
@@ -114,11 +141,13 @@ function dropbar_menu_entry_t:first_clickable(offset)
   offset = offset or 0
   local col_start = self.padding.left
   for _, component in ipairs(self.components) do
-    local col_end = col_start + component:bytewidth()
-    if offset < col_end and component.on_click then
-      return component, { start = col_start, ['end'] = col_end }
+    if not component.align_right then
+      local col_end = col_start + component:bytewidth()
+      if offset < col_end and component.on_click then
+        return component, { start = col_start, ['end'] = col_end }
+      end
+      col_start = col_end + self.separator:bytewidth()
     end
-    col_start = col_end + self.separator:bytewidth()
   end
 end
 
@@ -130,17 +159,20 @@ end
 function dropbar_menu_entry_t:get_component_at(col, look_ahead)
   local col_offset = self.padding.left
   for _, component in ipairs(self.components) do
-    local component_len = component:bytewidth()
-    if
-      (look_ahead or col >= col_offset) and col < col_offset + component_len
-    then
-      return component,
-        {
-          start = col_offset,
-          ['end'] = col_offset + component_len,
-        }
+    if not component.align_right then
+      local component_len = component:bytewidth()
+      if
+        (look_ahead or col >= col_offset)
+        and col < col_offset + component_len
+      then
+        return component,
+          {
+            start = col_offset,
+            ['end'] = col_offset + component_len,
+          }
+      end
+      col_offset = col_offset + component_len + self.separator:bytewidth()
     end
-    col_offset = col_offset + component_len + self.separator:bytewidth()
   end
   return nil, nil
 end
@@ -153,12 +185,14 @@ function dropbar_menu_entry_t:prev_clickable(col)
   local col_start = self.padding.left
   local prev_component, range
   for _, component in ipairs(self.components) do
-    local col_end = col_start + component:bytewidth()
-    if col > col_end and component.on_click then
-      prev_component = component
-      range = { start = col_start, ['end'] = col_end }
+    if not component.align_right then
+      local col_end = col_start + component:bytewidth()
+      if col > col_end and component.on_click then
+        prev_component = component
+        range = { start = col_start, ['end'] = col_end }
+      end
+      col_start = col_end + self.separator:bytewidth()
     end
-    col_start = col_end + self.separator:bytewidth()
   end
   return prev_component, range
 end
@@ -170,12 +204,14 @@ end
 function dropbar_menu_entry_t:next_clickable(col)
   local col_start = self.padding.left
   for _, component in ipairs(self.components) do
-    local col_end = col_start + component:bytewidth()
-    if col < col_start and component.on_click then
-      return component, { start = col_start, ['end'] = col_end }
-    end
+    if not component.align_right then
+      local col_end = col_start + component:bytewidth()
+      if col < col_start and component.on_click then
+        return component, { start = col_start, ['end'] = col_end }
+      end
 
-    col_start = col_end + self.separator:bytewidth()
+      col_start = col_end + self.separator:bytewidth()
+    end
   end
 end
 
@@ -388,17 +424,23 @@ function dropbar_menu_t:fill_buf()
   local lines = {} ---@type string[]
   local hl_info = {} ---@type dropbar_menu_hl_info_t[][]
   local extmarks = {} ---@type table<integer, string[][]>
+  local right_virt = {} ---@type table<integer, dropbar_symbol_t[]>
   for i, entry in ipairs(self.entries) do
     local line, entry_hl_info = entry:cat()
     -- Pad lines with spaces to the width of the window
     -- This is to make sure hl-DropBarMenuCurrentContext colors
     -- the entire line
-    -- Also pad the last symbol's name so that cursor is always
-    -- on at least one symbol when inside the menu
+    -- Also pad the last left-aligned symbol's name so that cursor is
+    -- always on at least one symbol when inside the menu
     local n = self._win_configs.width - entry:displaywidth()
     if n > 0 then
       local pad = string.rep(' ', n)
-      local last_sym = entry.components[#entry.components]
+      local last_sym
+      for _, component in ipairs(entry.components) do
+        if not component.align_right then
+          last_sym = component
+        end
+      end
       if last_sym then
         last_sym.name = last_sym.name .. pad
       end
@@ -408,6 +450,12 @@ function dropbar_menu_t:fill_buf()
     table.insert(hl_info, entry_hl_info)
     if entry.virt_text then
       table.insert(extmarks, i, entry.virt_text)
+    end
+    for _, component in ipairs(entry.components) do
+      if component.align_right then
+        right_virt[i] = right_virt[i] or {}
+        table.insert(right_virt[i], component)
+      end
     end
   end
 
@@ -441,6 +489,19 @@ function dropbar_menu_t:fill_buf()
         }
       )
     end
+  end
+
+  -- Right-aligned components (e.g. expand indicator on the right edge)
+  for linenr, components in pairs(right_virt) do
+    local virt_text = {}
+    for _, component in ipairs(components) do
+      table.insert(virt_text, { component.icon, component.icon_hl })
+    end
+    vim.api.nvim_buf_set_extmark(self.buf, extmark_ns, linenr - 1, 0, {
+      virt_text = virt_text,
+      virt_text_pos = 'right_align',
+      hl_mode = 'combine',
+    })
   end
 end
 
@@ -493,7 +554,17 @@ function dropbar_menu_t:make_buf()
         self:preview_symbol_at(cursor, true)
       end
 
-      if configs.opts.menu.quick_navigation and not self.fzf_state then
+      if configs.opts.menu.cursor_hijack and not self.fzf_state then
+        local entry = self.entries[cursor[1]]
+        if entry then
+          local target_col = entry:first_name_col()
+          if cursor[2] ~= target_col then
+            vim.api.nvim_win_set_cursor(self.win, { cursor[1], target_col })
+            cursor = { cursor[1], target_col }
+          end
+        end
+        self.prev_cursor = cursor
+      elseif configs.opts.menu.quick_navigation and not self.fzf_state then
         self:quick_navigation(cursor)
       else
         self.prev_cursor = cursor
