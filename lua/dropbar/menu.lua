@@ -460,6 +460,8 @@ function dropbar_menu_t:fill_buf()
   end
 
   -- Fill the buffer with lines, then add highlights
+  local hl_ns = vim.api.nvim_create_namespace('DropBar')
+  vim.api.nvim_buf_clear_namespace(self.buf, hl_ns, 0, -1)
   vim.api.nvim_buf_set_lines(self.buf, 0, -1, false, lines)
   for linenr, hl_line_info in ipairs(hl_info) do
     for _, hl_symbol_info in ipairs(hl_line_info) do
@@ -502,6 +504,54 @@ function dropbar_menu_t:fill_buf()
       virt_text_pos = 'right_align',
       hl_mode = 'combine',
     })
+  end
+end
+
+---Re-fill the menu buffer in place (toggling `modifiable` around it
+---since the buffer is normally non-modifiable).
+function dropbar_menu_t:redraw()
+  if not self.buf or not vim.api.nvim_buf_is_valid(self.buf) then
+    return
+  end
+  vim.bo[self.buf].ma = true
+  self:fill_buf()
+  vim.bo[self.buf].ma = false
+  if self.cursor then
+    self:update_current_context_hl(self.cursor[1])
+  end
+end
+
+---Set the directory icon on the parent menu entry that triggered this
+---submenu, then redraw the parent so the change is visible.
+---@param opened boolean true when the submenu has just opened, false on close
+function dropbar_menu_t:_update_parent_dir_icon(opened)
+  local parent = self.prev_menu
+  if
+    not parent
+    or not parent.is_opened
+    or not parent.clicked_at
+    or not parent.entries
+  then
+    return
+  end
+  local parent_entry = parent.entries[parent.clicked_at[1]]
+  if not parent_entry then
+    return
+  end
+  local icon = opened and configs.opts.icons.kinds.symbols.FolderOpenMenu
+    or configs.opts.icons.kinds.symbols.FolderMenu
+  for _, component in ipairs(parent_entry.components) do
+    if
+      not component.align_right
+      and component.data
+      and component.data.is_dir
+    then
+      if component.icon ~= icon then
+        component.icon = icon
+        parent:redraw()
+      end
+      return
+    end
   end
 end
 
@@ -760,6 +810,7 @@ function dropbar_menu_t:open(opts)
   self:make_buf()
   self:open_win()
   _G.dropbar.menus[self.win] = self
+  self:_update_parent_dir_icon(true)
   -- Initialize cursor position
   if self._win_configs.focusable ~= false then
     if self.prev_cursor then
@@ -787,6 +838,7 @@ function dropbar_menu_t:close(restore_view)
   if self.sub_menu then
     self.sub_menu:close(restore_view)
   end
+  self:_update_parent_dir_icon(false)
   -- Move cursor to the previous window
   if self.prev_win and vim.api.nvim_win_is_valid(self.prev_win) then
     vim.api.nvim_set_current_win(self.prev_win)

@@ -102,6 +102,7 @@ M.opts = {
         File = '󰈔 ',
         Folder = '󰉋 ',
         FolderMenu = '󰉋 ',
+        FolderOpenMenu = '󰝰 ',
         ForStatement = '󰑖 ',
         Function = '󰊕 ',
         GotoStatement = '󰁔 ',
