@@ -269,16 +269,16 @@ describe('[bar]', function()
       "default on_click() function creates menus according to symbol's siblings",
       function()
         sym3:on_click()
-        -- First component: expandable indicator
-        -- Second component: symbol sym3s1
+        -- First (left-aligned) component: symbol sym3s1
+        -- Second component (right-aligned, only if expandable): indicator
         -- Since menu opening can add padding to symbol names,
         -- only verify name prefix
         assert.is_true(
-          vim.startswith(sym3.menu.entries[1].components[2].name, 'sym3s1')
+          vim.startswith(sym3.menu.entries[1].components[1].name, 'sym3s1')
         )
         sym4:on_click()
         assert.is_true(
-          vim.startswith(sym4.menu.entries[1].components[2].name, 'sym4s1')
+          vim.startswith(sym4.menu.entries[1].components[1].name, 'sym4s1')
         )
       end
     )

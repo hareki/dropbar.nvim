@@ -2,6 +2,27 @@ local utils = require('dropbar.utils')
 local api = require('dropbar.api')
 local M = {}
 
+---Activate the current menu row: trigger the on_click of the first
+---left-aligned (non-right-aligned) clickable component, which expands
+---a directory or opens a file depending on the row.
+local function activate_current_row()
+  local menu = utils.menu.get_current()
+  if not menu then
+    return
+  end
+  local cursor = vim.api.nvim_win_get_cursor(menu.win)
+  local entry = menu.entries[cursor[1]]
+  if not entry then
+    return
+  end
+  for _, component in ipairs(entry.components) do
+    if not component.align_right and component.on_click then
+      menu:click_on(component, nil, 1, 'l')
+      return
+    end
+  end
+end
+
 ---@class dropbar_configs_t
 M.opts = {
   icons = {
@@ -220,36 +241,33 @@ M.opts = {
         win_configs = win_configs,
         ---@param sym dropbar_symbol_t
         entries = vim.tbl_map(function(sym)
-          local menu_indicator_icon = configs.opts.icons.ui.menu.indicator
-          local menu_indicator_on_click = nil
-          if not sym.children or vim.tbl_isempty(sym.children) then
-            menu_indicator_icon =
-              string.rep(' ', vim.fn.strdisplaywidth(menu_indicator_icon))
-            menu_indicator_on_click = false
-          end
+          local is_expandable = sym.children
+            and not vim.tbl_isempty(sym.children)
           local is_dir = sym.data and sym.data.is_dir
-          return menu.dropbar_menu_entry_t:new({
-            components = {
-              sym:merge({
-                name = '',
-                icon = menu_indicator_icon,
-                icon_hl = 'dropbarIconUIIndicator',
-                on_click = menu_indicator_on_click,
-              }),
-              sym:merge({
-                icon = is_dir and configs.opts.icons.kinds.symbols.FolderMenu
-                  or sym.icon,
-                name_hl = is_dir and 'DropBarKindDirMenu' or sym.name_hl,
-                on_click = function()
-                  local root_menu = symbol.menu and symbol.menu:root()
-                  if root_menu then
-                    root_menu:close(false)
-                  end
-                  sym:jump()
-                end,
-              }),
-            },
+          local main = sym:merge({
+            icon = is_dir and configs.opts.icons.kinds.symbols.FolderMenu
+              or sym.icon,
+            name_hl = is_dir and 'DropBarKindDirMenu' or sym.name_hl,
+            on_click = is_expandable and sym.on_click or function()
+              local root_menu = symbol.menu and symbol.menu:root()
+              if root_menu then
+                root_menu:close(false)
+              end
+              sym:jump()
+            end,
           })
+          local components = { main }
+          if is_expandable and not is_dir then
+            local indicator = sym:merge({
+              name = '',
+              icon = configs.opts.icons.ui.menu.indicator,
+              icon_hl = 'DropBarIconUIIndicator',
+              on_click = false,
+              align_right = true,
+            })
+            table.insert(components, indicator)
+          end
+          return menu.dropbar_menu_entry_t:new({ components = components })
         end, entries_source),
       })
       symbol.menu:toggle()
@@ -379,6 +397,11 @@ M.opts = {
     -- When on, automatically set the cursor to the closest previous/next
     -- clickable component in the direction of cursor movement on CursorMoved
     quick_navigation = true,
+    -- When on, the cursor is locked to the first character of each row's
+    -- name (similar to nvim-tree). <Left>/<h> closes the current menu and
+    -- <Right>/<l> activates the row (expand a directory or open a file).
+    -- Takes precedence over `quick_navigation` when enabled.
+    cursor_hijack = true,
     entry = {
       padding = {
         left = 1,
@@ -396,6 +419,10 @@ M.opts = {
     keymaps = {
       ['q'] = '<C-w>q',
       ['<Esc>'] = '<C-w>q',
+      ['<Left>'] = '<C-w>q',
+      ['h'] = '<C-w>q',
+      ['<Right>'] = activate_current_row,
+      ['l'] = activate_current_row,
       ['<LeftMouse>'] = function()
         local menu = utils.menu.get_current()
         if not menu then
