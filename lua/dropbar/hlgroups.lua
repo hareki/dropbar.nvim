@@ -81,7 +81,7 @@ local hlgroups = {
   DropBarMenuFloatBorder           = { link = 'FloatBorder' },
   DropBarMenuHoverEntry            = { link = 'IncSearch' },
   DropBarMenuHoverIcon             = { reverse = true },
-  DropBarMenuHoverSymbol           = { bold = true },
+  DropBarMenuHoverSymbol           = { bold = false },
   DropBarMenuNormalFloat           = { link = 'NormalFloat' },
   DropBarMenuSbar                  = { link = 'PmenuSbar' },
   DropBarMenuThumb                 = { link = 'PmenuThumb' },
