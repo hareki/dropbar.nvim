@@ -103,6 +103,7 @@ M.opts = {
         Folder = '󰉋 ',
         FolderMenu = '󰉋 ',
         FolderOpenMenu = '󰝰 ',
+        FolderEmptyMenu = '󰉖 ',
         ForStatement = '󰑖 ',
         Function = '󰊕 ',
         GotoStatement = '󰁔 ',
@@ -245,17 +246,28 @@ M.opts = {
           local is_expandable = sym.children
             and not vim.tbl_isempty(sym.children)
           local is_dir = sym.data and sym.data.is_dir
-          local main = sym:merge({
-            icon = is_dir and configs.opts.icons.kinds.symbols.FolderMenu
-              or sym.icon,
-            name_hl = is_dir and 'DropBarKindDirMenu' or sym.name_hl,
-            on_click = is_expandable and sym.on_click or function()
+          local is_empty_dir = is_dir and not is_expandable
+          local dir_icon = is_empty_dir
+              and configs.opts.icons.kinds.symbols.FolderEmptyMenu
+            or configs.opts.icons.kinds.symbols.FolderMenu
+          local on_click
+          if is_empty_dir then
+            on_click = false
+          elseif is_expandable then
+            on_click = sym.on_click
+          else
+            on_click = function()
               local root_menu = symbol.menu and symbol.menu:root()
               if root_menu then
                 root_menu:close(false)
               end
               sym:jump()
-            end,
+            end
+          end
+          local main = sym:merge({
+            icon = is_dir and dir_icon or sym.icon,
+            name_hl = is_dir and 'DropBarKindDirMenu' or sym.name_hl,
+            on_click = on_click,
           })
           local components = { main }
           if is_expandable and not is_dir then
