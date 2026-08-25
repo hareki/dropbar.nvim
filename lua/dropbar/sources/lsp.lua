@@ -345,6 +345,12 @@ local function update_symbols(buf, ttl)
         -- - https://www.lua.org/manual/5.4/manual.html#pdf-table.sort
         return l1 < l2 or l1 == l2 and c1 < c2
       end)
+
+      -- Symbols land long after the winbar that requested them was drawn, so
+      -- repaint here; otherwise the bar keeps rendering the stale cache until
+      -- an unrelated update event fires. `detach()` below already does this on
+      -- the teardown side
+      utils.bar.exec('update', { buf = buf })
     end,
     buf
   )
