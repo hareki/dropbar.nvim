@@ -279,6 +279,11 @@ local function unify(symbols)
   return document_symbols
 end
 
+---Round counter per buffer, so a superseded round of requests can never
+---overwrite the symbols a newer one already stored
+---@type table<integer, integer>
+local lsp_buf_request_gen = {}
+
 ---Update LSP symbols from an LSP client
 ---Side effect: update symbol_list
 ---@param buf integer buffer handler
@@ -296,65 +301,119 @@ local function update_symbols(buf, ttl)
     end, configs.opts.sources.lsp.request.interval)
   end
 
-  local client = vim.lsp.get_clients({
+  local clients = vim.lsp.get_clients({
     bufnr = buf,
     method = 'textDocument/documentSymbol',
-  })[1]
-  if not client then
+  })
+  if vim.tbl_isempty(clients) then
     defer_update_symbols()
     return
   end
 
-  ---@diagnostic disable: param-type-mismatch, inject-field
-  -- Cancel previous request before making new request since
-  -- responses from outdated requests are not helpful, fix
-  -- https://github.com/Bekaboo/dropbar.nvim/issues/249
-  if client._dropbar_request_id then
-    client:cancel_request(client._dropbar_request_id)
+  -- Ask every provider instead of only `clients[1]`: a server can advertise
+  -- `documentSymbolProvider` and still answer `[]` for a file it only
+  -- partially owns (angularls does exactly that for `.ts`, leaving the real
+  -- symbols to vtsls/ts_ls). Since an empty reply is read as "not ready yet",
+  -- querying just the lowest-id client would retry that same empty provider
+  -- until the ttl runs out and then drop the symbols for good
+  local generation = (lsp_buf_request_gen[buf] or 0) + 1
+  lsp_buf_request_gen[buf] = generation
+
+  local pending = #clients
+  ---@type table<integer, lsp_document_symbol_t[]>
+  local responses = {}
+
+  ---Called once every client has answered (or could not be asked)
+  local function settle()
+    -- Keep client order so the preferred (lowest id) provider still wins
+    -- whenever more than one returns symbols
+    local symbols ---@type lsp_document_symbol_t[]?
+    for i = 1, #clients do
+      if responses[i] then
+        symbols = responses[i]
+        break
+      end
+    end
+
+    if not symbols then
+      defer_update_symbols()
+      return
+    end
+
+    -- Unify symbols to common format and sort by position since LSP
+    -- responses can be disordered i.e. later symbols can appear first
+    lsp_buf_symbols[buf] = unify(symbols)
+
+    ---@param s1 lsp_document_symbol_t
+    ---@param s2 lsp_document_symbol_t
+    ---@return boolean precedes true if `s1` appears before `s2`
+    table.sort(lsp_buf_symbols[buf], function(s1, s2)
+      local l1, l2, c1, c2 =
+        s1.range.start.line,
+        s2.range.start.line,
+        s1.range.start.character,
+        s2.range.start.character
+
+      -- Pitfall: don't use `l1 == l2 and c1 <= c2` here as sort algorithm is
+      -- not stable and we shouldn't return `true` for two elements with equal
+      -- total order, i.e. symbols with the same start position (both line &
+      -- column), else lua will throw the error: 'invalid order function for
+      -- sorting', see:
+      -- - https://blog.csdn.net/twwk120120/article/details/102697411
+      -- - https://www.lua.org/manual/5.4/manual.html#pdf-table.sort
+      return l1 < l2 or l1 == l2 and c1 < c2
+    end)
+
+    -- Symbols land long after the winbar that requested them was drawn, so
+    -- repaint here; otherwise the bar keeps rendering the stale cache until
+    -- an unrelated update event fires. `detach()` below already does this on
+    -- the teardown side
+    utils.bar.exec('update', { buf = buf })
   end
 
-  local _, request_id = client:request(
-    'textDocument/documentSymbol',
-    { textDocument = vim.lsp.util.make_text_document_params(buf) },
-    function(err, symbols, _)
-      if err or not symbols or vim.tbl_isempty(symbols) then
-        defer_update_symbols()
-        return
-      end
+  ---@param idx integer index of the client in `clients`
+  ---@param symbols lsp_document_symbol_t[]? symbols it answered with
+  local function respond(idx, symbols)
+    -- A newer round (or a detach) took over, its answers are the current ones
+    if lsp_buf_request_gen[buf] ~= generation then
+      return
+    end
 
-      -- Unify symbols to common format and sort by position since LSP
-      -- responses can be disordered i.e. later symbols can appear first
-      lsp_buf_symbols[buf] = unify(symbols)
+    if symbols and not vim.tbl_isempty(symbols) then
+      responses[idx] = symbols
+    end
 
-      ---@param s1 lsp_document_symbol_t
-      ---@param s2 lsp_document_symbol_t
-      ---@return boolean precedes true if `s1` appears before `s2`
-      table.sort(lsp_buf_symbols[buf], function(s1, s2)
-        local l1, l2, c1, c2 =
-          s1.range.start.line,
-          s2.range.start.line,
-          s1.range.start.character,
-          s2.range.start.character
+    pending = pending - 1
+    if pending == 0 then
+      settle()
+    end
+  end
 
-        -- Pitfall: don't use `l1 == l2 and c1 <= c2` here as sort algorithm is
-        -- not stable and we shouldn't return `true` for two elements with equal
-        -- total order, i.e. symbols with the same start position (both line &
-        -- column), else lua will throw the error: 'invalid order function for
-        -- sorting', see:
-        -- - https://blog.csdn.net/twwk120120/article/details/102697411
-        -- - https://www.lua.org/manual/5.4/manual.html#pdf-table.sort
-        return l1 < l2 or l1 == l2 and c1 < c2
-      end)
+  ---@diagnostic disable: param-type-mismatch, inject-field
+  for idx, client in ipairs(clients) do
+    -- Cancel previous request before making new request since
+    -- responses from outdated requests are not helpful, fix
+    -- https://github.com/Bekaboo/dropbar.nvim/issues/249
+    if client._dropbar_request_id then
+      client:cancel_request(client._dropbar_request_id)
+    end
 
-      -- Symbols land long after the winbar that requested them was drawn, so
-      -- repaint here; otherwise the bar keeps rendering the stale cache until
-      -- an unrelated update event fires. `detach()` below already does this on
-      -- the teardown side
-      utils.bar.exec('update', { buf = buf })
-    end,
-    buf
-  )
-  client._dropbar_request_id = request_id
+    local ok, request_id = client:request(
+      'textDocument/documentSymbol',
+      { textDocument = vim.lsp.util.make_text_document_params(buf) },
+      function(err, symbols, _)
+        respond(idx, not err and symbols or nil)
+      end,
+      buf
+    )
+    client._dropbar_request_id = request_id
+
+    -- The handler never runs for a request that was not sent, so it cannot
+    -- settle the round on its own
+    if not ok then
+      respond(idx, nil)
+    end
+  end
   ---@diagnostic enable: param-type-mismatch, inject-field
 end
 
@@ -398,6 +457,7 @@ local function detach(buf)
     vim.api.nvim_del_autocmd(vim.b[buf].dropbar_lsp_attached)
     vim.b[buf].dropbar_lsp_attached = nil
     lsp_buf_symbols[buf] = nil
+    lsp_buf_request_gen[buf] = nil
     for _, dropbar in pairs(_G.dropbar.bars[buf]) do
       dropbar:update()
     end
